@@ -7,64 +7,64 @@ from geopy.distance import geodesic
 
 # --- الإعدادات ---
 API_TOKEN = '8734967078:AAGLMX5luI5i6DBhr6Dks6VQJ0pHXdVpr1I'
-# إحداثيات الرياض التقريبية (تأكد من وضع إحداثيات مقهاك بدقة هنا)
-CAFE_LOCATION = (24.7136, 46.6753) 
+CAFE_LOCATION = (24.7136, 46.6753) # إحداثيات موقعك في الرياض
 
-st.set_page_config(page_title="TIMENN Dashboard", layout="wide")
-st.title("🏎️ لوحة تحكم تايمن - المراقبة الحية")
+st.set_page_config(page_title="TIMENN Live Tracking", layout="wide")
+st.title("🏎️ لوحة تايمن - مراقبة وصول العملاء")
 
-# تهيئة مخزن البيانات في الجلسة
-if 'orders' not in st.session_state:
-    st.session_state.orders = []
+# تهيئة القائمة في الجلسة
+if 'order_list' not in st.session_state:
+    st.session_state.order_list = []
 
-# عرض الجدول بشكل دائم
-st.subheader("الطلبات القادمة")
-placeholder = st.empty() # مكان مخصص لتحديث الجدول
+# --- واجهة العرض ---
+st.subheader("حالة المسار الحالية")
+table_placeholder = st.empty()
 
-def display_data():
-    if st.session_state.orders:
-        df = pd.DataFrame(st.session_state.orders)
-        placeholder.table(df)
+def update_display():
+    if st.session_state.order_list:
+        df = pd.DataFrame(st.session_state.order_list)
+        table_placeholder.table(df)
     else:
-        placeholder.info("بانتظار وصول بيانات الموقع من العملاء...")
+        table_placeholder.info("بانتظار استقبال إشارات الموقع...")
 
-display_data()
-
-# --- محرك البوت ---
-async def main():
+# --- وظائف البوت المحسنة لـ Streamlit ---
+async def run_bot_logic():
     bot = Bot(token=API_TOKEN)
     dp = Dispatcher()
 
     @dp.message(Command("start"))
-    async def cmd_start(message: types.Message):
+    async def welcome(message: types.Message):
         kb = [[types.KeyboardButton(text="📍 مشاركة الموقع للتحضير", request_location=True)]]
-        keyboard = types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
-        await message.answer("مرحباً بك! اضغط الزر لمشاركة موقعك مع المقهى:", reply_markup=keyboard)
+        markup = types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
+        await message.answer("مرحباً بك في تايمن! شارك موقعك لنعرف متى نجهز قهوتك:", reply_markup=markup)
 
     @dp.message(F.location)
-    async def handle_location(message: types.Message):
-        u_lat, u_lon = message.location.latitude, message.location.longitude
-        dist = geodesic((u_lat, u_lon), CAFE_LOCATION).km
+    async def get_loc(message: types.Message):
+        dist = geodesic((message.location.latitude, message.location.longitude), CAFE_LOCATION).km
+        status = "🚨 عند الشباك" if dist < 0.3 else "⏳ قادم في الطريق"
         
-        # تحديد الحالة بناءً على المسافة
-        status = "🚨 وصل الآن" if dist < 0.5 else "⏳ في الطريق"
-        
-        new_entry = {
+        new_data = {
             "العميل": message.from_user.first_name,
             "المسافة": f"{dist:.2f} كم",
             "الحالة": status,
-            "الوقت": pd.Timestamp.now().strftime('%H:%M:%S')
+            "التوقيت": pd.Timestamp.now().strftime('%H:%M:%S')
         }
-        
-        st.session_state.orders.insert(0, new_entry) # إضافة الطلب الجديد في الأعلى
-        st.success(f"تم استقبال موقع {message.from_user.first_name}!")
-        st.rerun() # إجبار الصفحة على التحديث فوراً
+        # تحديث القائمة
+        st.session_state.order_list.insert(0, new_data)
+        await message.answer(f"استلمنا إشارتك! أنت على بُعد {dist:.2f} كم.")
 
-    if st.button("تشغيل استقبال الإشارات 🛰️"):
-        await dp.start_polling(bot)
+    # تشغيل البوت بدون استخدام set_wakeup_fd لتجنب خطأ الـ Thread
+    await dp.start_polling(bot, handle_signals=False)
 
-if __name__ == "__main__":
+# --- زر التشغيل الآمن ---
+if st.button("بدء استقبال إشارات الموقع 🛰️"):
+    update_display()
+    # استخدام loop مخصص لـ Streamlit
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     try:
-        asyncio.run(main())
+        loop.run_until_complete(run_bot_logic())
     except Exception as e:
-        st.error(f"حدث خطأ: {e}")
+        st.error(f"تنبيه: {e}")
+
+update_display()

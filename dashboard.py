@@ -1,35 +1,49 @@
 import streamlit as st
 import pandas as pd
 import asyncio
+import os
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from geopy.distance import geodesic
 
-# --- الإعدادات الأساسية ---
+# --- الإعدادات ---
 API_TOKEN = '8734967078:AAGLMX5luI5i6DBhr6Dks6VQJ0pHXdVpr1I'
-CAFE_LOCATION = (24.7136, 46.6753) # موقع الرياض الحالي
+CAFE_LOCATION = (24.7136, 46.6753) 
+DB_FILE = "orders.csv"
 
 st.set_page_config(page_title="TIMENN Dashboard", layout="wide")
 st.title("🏎️ لوحة تايمن - إدارة الطلبات الحية")
 
-# تهيئة المخزن المؤقت للبيانات
-if 'final_orders' not in st.session_state:
-    st.session_state.final_orders = []
+# وظائف قاعدة البيانات البسيطة
+def save_order(entry):
+    df = pd.DataFrame([entry])
+    if not os.path.isfile(DB_FILE):
+        df.to_csv(DB_FILE, index=False)
+    else:
+        df.to_csv(DB_FILE, mode='a', header=False, index=False)
+
+def load_orders():
+    if os.path.isfile(DB_FILE):
+        return pd.read_csv(DB_FILE)
+    return pd.DataFrame()
+
+# --- واجهة العرض ---
+st.subheader("سجل الطلبات المستلمة")
+if st.button("تفريغ السجل 🗑️"):
+    if os.path.exists(DB_FILE):
+        os.remove(DB_FILE)
+    st.rerun()
+
+orders_df = load_orders()
+if not orders_df.empty:
+    # عرض آخر الطلبات في الأعلى
+    st.table(orders_df.iloc[::-1])
+else:
+    st.info("بانتظار استقبال أول طلب...")
+
+# مخزن مؤقت للاختيارات في الجلسة الحالية فقط
 if 'temp_selection' not in st.session_state:
     st.session_state.temp_selection = {}
-
-# --- عرض الجدول ---
-st.subheader("سجل الطلبات الحية")
-table_placeholder = st.empty()
-
-def render_table():
-    if st.session_state.final_orders:
-        df = pd.DataFrame(st.session_state.final_orders)
-        table_placeholder.table(df)
-    else:
-        table_placeholder.info("بانتظار استقبال الطلبات من تيليقرام...")
-
-render_table()
 
 # --- محرك البوت ---
 async def main_bot():
@@ -37,55 +51,42 @@ async def main_bot():
     dp = Dispatcher()
 
     @dp.message(Command("start"))
-    async def open_menu(message: types.Message):
-        # مصفوفة الأزرار
+    async def cmd_start(message: types.Message):
         menu_kb = [
             [types.KeyboardButton(text="☕️ قهوة لاتيه")],
             [types.KeyboardButton(text="🍃 شاي بالنعناع")],
             [types.KeyboardButton(text="🥐 كروسان")],
             [types.KeyboardButton(text="🧁 كيك مادلين")]
         ]
-        # resize_keyboard تجعل الأزرار بحجم مناسب
-        # one_time_keyboard تختفي بعد الضغط
         keyboard = types.ReplyKeyboardMarkup(keyboard=menu_kb, resize_keyboard=True, one_time_keyboard=True)
-        await message.answer("مرحباً بك في تايمن! اختر صنفك المفضل:", reply_markup=keyboard)
+        await message.answer("أهلاً بك في تايمن! اختر صنفك المفضل:", reply_markup=keyboard)
 
     @dp.message(F.text.in_(["☕️ قهوة لاتيه", "🍃 شاي بالنعناع", "🥐 كروسان", "🧁 كيك مادلين"]))
     async def process_choice(message: types.Message):
-        # حفظ الاختيار باستخدام ID المستخدم
         st.session_state.temp_selection[message.from_user.id] = message.text
-        
         loc_kb = [[types.KeyboardButton(text="📍 إرسال الموقع لتجهيز الطلب", request_location=True)]]
-        loc_markup = types.ReplyKeyboardMarkup(keyboard=loc_kb, resize_keyboard=True, one_time_keyboard=True)
-        await message.answer(f"اختيار رائع: {message.text}\nفضلاً شاركنا موقعك الآن:", reply_markup=loc_markup)
+        markup = types.ReplyKeyboardMarkup(keyboard=loc_kb, resize_keyboard=True, one_time_keyboard=True)
+        await message.answer(f"تم اختيار {message.text}. شاركنا موقعك الآن:", reply_markup=markup)
 
     @dp.message(F.location)
     async def process_location(message: types.Message):
         uid = message.from_user.id
-        selected_item = st.session_state.temp_selection.get(uid, "طلب متنوع")
+        item = st.session_state.temp_selection.get(uid, "طلب متنوع")
+        dist = geodesic((message.location.latitude, message.location.longitude), CAFE_LOCATION).km
         
-        # حساب المسافة
-        u_coords = (message.location.latitude, message.location.longitude)
-        dist = geodesic(u_coords, CAFE_LOCATION).km
-        
-        # إضافة الطلب للقائمة
         new_entry = {
             "العميل": message.from_user.first_name,
-            "الطلب": selected_item,
+            "الطلب": item,
             "المسافة": f"{dist:.2f} كم",
-            "التوقيت": pd.Timestamp.now().strftime('%H:%M:%S')
+            "الوقت": pd.Timestamp.now().strftime('%H:%M:%S')
         }
         
-        st.session_state.final_orders.insert(0, new_entry)
-        await message.answer("تم استلام طلبك! سيظهر الآن في لوحة التحكم بالمقهى.")
-        # تحديث الواجهة فوراً
+        # حفظ في الملف فوراً
+        save_order(new_entry)
+        await message.answer("تم! طلبك مسجل الآن في لوحة المقهى.")
         st.rerun()
 
     await dp.start_polling(bot, handle_signals=False)
 
-# --- زر التشغيل ---
 if st.button("تفعيل رادار تايمن 🛰️"):
-    try:
-        asyncio.run(main_bot())
-    except Exception as e:
-        st.error(f"حدث خطأ: {e}")
+    asyncio.run(main_bot())

@@ -40,7 +40,7 @@ with col1:
     if not df.empty:
         st.table(df.iloc[::-1])
     else:
-        st.info("بانتظار إشارات العملاء...")
+        st.info("بانتظار إشارات العملاء... (اضغط تحديث بعد إرسال الموقع)")
 
 with col2:
     st.subheader("التحكم")
@@ -55,7 +55,7 @@ async def start_bot():
 
     @dp.message(Command("start"))
     async def cmd_start(message: types.Message):
-        # قائمة الأصناف كما تظهر في الصورة
+        # قائمة الأصناف
         kb = [
             [types.KeyboardButton(text="☕️ قهوة لاتيه")],
             [types.KeyboardButton(text="🍃 شاي بالنعناع")],
@@ -65,20 +65,26 @@ async def start_bot():
         markup = types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
         await message.answer("أهلاً بك في تايمن! اختر صنفك المفضل:", reply_markup=markup)
 
-    # هذا الجزء يضمن استجابة البوت لأي صنف من القائمة
-    @dp.message(F.text.in_(["☕️ قهوة لاتيه", "🍃 شاي بالنعناع", "🥐 كروسان", "🧁 كيك مادلين"]))
+    # مستشعر مرن: يستجيب إذا احتوت الرسالة على أي من هذه الكلمات
+    @dp.message(lambda msg: any(word in msg.text for word in ["قهوة", "شاي", "كروسان", "كيك", "مادلين", "لاتيه"]))
     async def ask_location(message: types.Message):
-        # تخزين الطلب في جلسة ستريمليت (اختياري)
+        # حفظ الطلب في الجلسة
         st.session_state['current_order'] = message.text
         
+        # إنشاء زر الموقع
         loc_kb = [[types.KeyboardButton(text="📍 إرسال الموقع لتجهيز الطلب", request_location=True)]]
-        await message.answer(f"تم اختيار {message.text}. فضلاً أرسل موقعك الآن:", 
-                             reply_markup=types.ReplyKeyboardMarkup(keyboard=loc_kb, resize_keyboard=True))
+        await message.answer(
+            f"اختيار رائع: {message.text}\n\nفضلاً اضغط على الزر أدناه لمشاركة موقعك لنبدأ التحضير فوراً:", 
+            reply_markup=types.ReplyKeyboardMarkup(keyboard=loc_kb, resize_keyboard=True, one_time_keyboard=True)
+        )
 
     @dp.message(F.location)
     async def handle_location(message: types.Message):
-        order_item = st.session_state.get('current_order', "طلب")
-        dist = geodesic((message.location.latitude, message.location.longitude), CAFE_LOCATION).km
+        order_item = st.session_state.get('current_order', "طلب متنوع")
+        
+        # حساب المسافة
+        u_coords = (message.location.latitude, message.location.longitude)
+        dist = geodesic(u_coords, CAFE_LOCATION).km
         
         entry = {
             "العميل": message.from_user.first_name,
@@ -87,11 +93,11 @@ async def start_bot():
             "الوقت": pd.Timestamp.now().strftime('%H:%M:%S')
         }
         save_order(entry)
-        await message.answer("✅ تم استلام طلبك! سيتم التحضير فور وصولك لنطاق الخدمة.")
+        await message.answer("✅ تم استلام طلبك! سيظهر الآن في لوحة المقهى.")
 
     await dp.start_polling(bot, handle_signals=False)
 
 # --- 5. التشغيل ---
 if st.button("🛰️ تفعيل الرادار"):
-    st.warning("الرادار يعمل الآن...")
+    st.warning("الرادار يعمل الآن.. استقبل الطلب في تيليقرام ثم اضغط 'تحديث'")
     asyncio.run(start_bot())

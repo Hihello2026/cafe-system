@@ -1,4 +1,5 @@
 streamlit
-aiogram>=3.0.0
-geopy
 pandas
+aiogram
+geopy
+streamlit-autorefresh

@@ -8,7 +8,7 @@ from geopy.distance import geodesic
 
 # --- 1. الإعدادات ---
 API_TOKEN = '8734967078:AAGLMX5luI5i6DBhr6Dks6VQJ0pHXdVpr1I'
-CAFE_LOCATION = (24.7136, 46.6753) 
+CAFE_LOCATION = (24.7136, 46.6753) # إحداثيات الرياض
 DB_FILE = "orders.csv"
 
 st.set_page_config(page_title="TIMENN Dashboard", layout="wide", page_icon="🏎️")
@@ -40,7 +40,7 @@ with col1:
     if not df_display.empty:
         st.table(df_display.iloc[::-1])
     else:
-        st.info("بانتظار إشارات العملاء...")
+        st.info("بانتظار إشارات العملاء... (اضغط تحديث بعد استلام تأكيد البوت)")
 
 with col2:
     st.subheader("التحكم")
@@ -49,6 +49,9 @@ with col2:
         st.rerun()
 
 # --- 4. محرك البوت المحسن ---
+# نستخدم قاموساً بسيطاً خارج الجلسة لتخزين الطلبات المؤقتة
+user_orders = {}
+
 async def start_bot():
     bot = Bot(token=API_TOKEN)
     dp = Dispatcher()
@@ -64,13 +67,11 @@ async def start_bot():
         markup = types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
         await message.answer("أهلاً بك في تايمن! اختر صنفك المفضل:", reply_markup=markup)
 
-    # معالج شامل لأي رسالة نصية ليست أمراً (start)
     @dp.message(F.text & ~F.text.startswith('/'))
     async def process_any_text(message: types.Message):
-        # حفظ الطلب في ذاكرة الجلسة
-        st.session_state['current_order'] = message.text
+        # حفظ الطلب باستخدام معرف المستخدم (User ID) لضمان الدقة
+        user_orders[message.from_user.id] = message.text
         
-        # إنشاء زر طلب الموقع
         loc_kb = [[types.KeyboardButton(text="📍 إرسال الموقع لتجهيز الطلب", request_location=True)]]
         await message.answer(
             f"تم تسجيل طلبك: {message.text}\n\nفضلاً اضغط على الزر أدناه لمشاركة موقعك لنبدأ التحضير فوراً:", 
@@ -79,7 +80,8 @@ async def start_bot():
 
     @dp.message(F.location)
     async def handle_location(message: types.Message):
-        order_item = st.session_state.get('current_order', "طلب متنوع")
+        # استرجاع الصنف الخاص بهذا المستخدم تحديداً
+        order_item = user_orders.get(message.from_user.id, "طلب متنوع")
         u_coords = (message.location.latitude, message.location.longitude)
         dist = geodesic(u_coords, CAFE_LOCATION).km
         

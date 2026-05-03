@@ -5,20 +5,20 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from geopy.distance import geodesic
 
-# --- الإعدادات ---
+# --- الإعدادات الأساسية ---
 API_TOKEN = '8734967078:AAGLMX5luI5i6DBhr6Dks6VQJ0pHXdVpr1I'
-# إحداثيات الرياض (حدثها لاحقاً لموقعك الفعلي)
-CAFE_LOCATION = (24.7136, 46.6753)
+CAFE_LOCATION = (24.7136, 46.6753) # موقع الرياض الحالي
 
 st.set_page_config(page_title="TIMENN Dashboard", layout="wide")
-st.title("🏎️ لوحة تايمن - إدارة الطلبات")
+st.title("🏎️ لوحة تايمن - إدارة الطلبات الحية")
 
+# تهيئة المخزن المؤقت للبيانات
 if 'final_orders' not in st.session_state:
     st.session_state.final_orders = []
 if 'temp_selection' not in st.session_state:
     st.session_state.temp_selection = {}
 
-# --- عرض الجدول في الموقع ---
+# --- عرض الجدول ---
 st.subheader("سجل الطلبات الحية")
 table_placeholder = st.empty()
 
@@ -38,43 +38,54 @@ async def main_bot():
 
     @dp.message(Command("start"))
     async def open_menu(message: types.Message):
-        # إنشاء أزرار المنيو
-        buttons = [
+        # مصفوفة الأزرار
+        menu_kb = [
             [types.KeyboardButton(text="☕️ قهوة لاتيه")],
             [types.KeyboardButton(text="🍃 شاي بالنعناع")],
             [types.KeyboardButton(text="🥐 كروسان")],
             [types.KeyboardButton(text="🧁 كيك مادلين")]
         ]
-        keyboard = types.ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
-        await message.answer("مرحباً بك في تايمن! اختر صنفك المفضل من المنيو أدناه:", reply_markup=keyboard)
+        # resize_keyboard تجعل الأزرار بحجم مناسب
+        # one_time_keyboard تختفي بعد الضغط
+        keyboard = types.ReplyKeyboardMarkup(keyboard=menu_kb, resize_keyboard=True, one_time_keyboard=True)
+        await message.answer("مرحباً بك في تايمن! اختر صنفك المفضل:", reply_markup=keyboard)
 
     @dp.message(F.text.in_(["☕️ قهوة لاتيه", "🍃 شاي بالنعناع", "🥐 كروسان", "🧁 كيك مادلين"]))
     async def process_choice(message: types.Message):
+        # حفظ الاختيار باستخدام ID المستخدم
         st.session_state.temp_selection[message.from_user.id] = message.text
         
-        loc_btn = [[types.KeyboardButton(text="📍 إرسال الموقع لتجهيز الطلب", request_location=True)]]
-        loc_keyboard = types.ReplyKeyboardMarkup(keyboard=loc_btn, resize_keyboard=True)
-        await message.answer(f"تم اختيار {message.text}. فضلاً شاركنا موقعك لنحدد وقت الوصول:", reply_markup=loc_keyboard)
+        loc_kb = [[types.KeyboardButton(text="📍 إرسال الموقع لتجهيز الطلب", request_location=True)]]
+        loc_markup = types.ReplyKeyboardMarkup(keyboard=loc_kb, resize_keyboard=True, one_time_keyboard=True)
+        await message.answer(f"اختيار رائع: {message.text}\nفضلاً شاركنا موقعك الآن:", reply_markup=loc_markup)
 
     @dp.message(F.location)
     async def process_location(message: types.Message):
-        user_id = message.from_user.id
-        selected_item = st.session_state.temp_selection.get(user_id, "طلب عام")
+        uid = message.from_user.id
+        selected_item = st.session_state.temp_selection.get(uid, "طلب متنوع")
         
-        dist = geodesic((message.location.latitude, message.location.longitude), CAFE_LOCATION).km
+        # حساب المسافة
+        u_coords = (message.location.latitude, message.location.longitude)
+        dist = geodesic(u_coords, CAFE_LOCATION).km
         
+        # إضافة الطلب للقائمة
         new_entry = {
             "العميل": message.from_user.first_name,
             "الطلب": selected_item,
             "المسافة": f"{dist:.2f} كم",
-            "الوقت": pd.Timestamp.now().strftime('%H:%M:%S')
+            "التوقيت": pd.Timestamp.now().strftime('%H:%M:%S')
         }
         
         st.session_state.final_orders.insert(0, new_entry)
-        await message.answer("رائع! طلبك الآن يظهر على شاشة التحضير في المقهى.")
+        await message.answer("تم استلام طلبك! سيظهر الآن في لوحة التحكم بالمقهى.")
+        # تحديث الواجهة فوراً
         st.rerun()
 
     await dp.start_polling(bot, handle_signals=False)
 
-if st.button("تفعيل استقبال الطلبات 🛰️"):
-    asyncio.run(main_bot())
+# --- زر التشغيل ---
+if st.button("تفعيل رادار تايمن 🛰️"):
+    try:
+        asyncio.run(main_bot())
+    except Exception as e:
+        st.error(f"حدث خطأ: {e}")

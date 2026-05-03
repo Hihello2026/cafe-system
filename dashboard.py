@@ -8,7 +8,7 @@ from geopy.distance import geodesic
 
 # --- 1. الإعدادات ---
 API_TOKEN = '8734967078:AAGLMX5luI5i6DBhr6Dks6VQJ0pHXdVpr1I'
-CAFE_LOCATION = (24.7136, 46.6753) # إحداثيات الرياض
+CAFE_LOCATION = (24.7136, 46.6753) # إحداثيات موقعك في الرياض
 DB_FILE = "orders.csv"
 
 st.set_page_config(page_title="TIMENN Dashboard", layout="wide", page_icon="🏎️")
@@ -16,6 +16,7 @@ st.title("🏎️ لوحة تايمن - المراقبة الحية")
 
 # --- 2. إدارة البيانات ---
 def save_order(entry):
+    """حفظ الطلب في ملف خارجي لضمان عدم ضياعه"""
     df = pd.DataFrame([entry])
     if not os.path.isfile(DB_FILE):
         df.to_csv(DB_FILE, index=False)
@@ -23,16 +24,17 @@ def save_order(entry):
         df.to_csv(DB_FILE, mode='a', header=False, index=False)
 
 def load_orders():
+    """تحميل الطلبات لعرضها في الجدول"""
     if os.path.isfile(DB_FILE):
         try: return pd.read_csv(DB_FILE)
         except: return pd.DataFrame()
     return pd.DataFrame()
 
-# --- 3. واجهة المستخدم ---
+# --- 3. واجهة المستخدم في Streamlit ---
 col1, col2 = st.columns([3, 1])
 
 with col1:
-    st.subheader("سجل العمليات")
+    st.subheader("سجل العمليات الحية")
     if st.button("🔄 تحديث الجدول"):
         st.rerun()
     
@@ -40,7 +42,7 @@ with col1:
     if not df_display.empty:
         st.table(df_display.iloc[::-1])
     else:
-        st.info("بانتظار إشارات العملاء... (اضغط تحديث بعد استلام تأكيد البوت)")
+        st.info("الرادار يبحث عن إشارات.. استقبل الطلبات في تيليقرام ثم اضغط تحديث.")
 
 with col2:
     st.subheader("التحكم")
@@ -48,8 +50,8 @@ with col2:
         if os.path.exists(DB_FILE): os.remove(DB_FILE)
         st.rerun()
 
-# --- 4. محرك البوت المحسن ---
-# نستخدم قاموساً بسيطاً خارج الجلسة لتخزين الطلبات المؤقتة
+# --- 4. محرك البوت (الخلفية) ---
+# ذاكرة داخلية للبوت لربط كل مستخدم بطلبه
 user_orders = {}
 
 async def start_bot():
@@ -58,6 +60,7 @@ async def start_bot():
 
     @dp.message(Command("start"))
     async def cmd_start(message: types.Message):
+        # قائمة الأصناف كما حددتها لعلامة TIMENN
         kb = [
             [types.KeyboardButton(text="☕️ قهوة لاتيه")],
             [types.KeyboardButton(text="🍃 شاي بالنعناع")],
@@ -67,9 +70,10 @@ async def start_bot():
         markup = types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
         await message.answer("أهلاً بك في تايمن! اختر صنفك المفضل:", reply_markup=markup)
 
+    # معالج شامل يضمن الرد على أي صنف يتم اختياره
     @dp.message(F.text & ~F.text.startswith('/'))
     async def process_any_text(message: types.Message):
-        # حفظ الطلب باستخدام معرف المستخدم (User ID) لضمان الدقة
+        # حفظ الطلب باستخدام معرف المستخدم الفريد
         user_orders[message.from_user.id] = message.text
         
         loc_kb = [[types.KeyboardButton(text="📍 إرسال الموقع لتجهيز الطلب", request_location=True)]]
@@ -80,7 +84,7 @@ async def start_bot():
 
     @dp.message(F.location)
     async def handle_location(message: types.Message):
-        # استرجاع الصنف الخاص بهذا المستخدم تحديداً
+        # استرجاع الصنف الخاص بالمستخدم من ذاكرة البوت
         order_item = user_orders.get(message.from_user.id, "طلب متنوع")
         u_coords = (message.location.latitude, message.location.longitude)
         dist = geodesic(u_coords, CAFE_LOCATION).km
@@ -92,8 +96,9 @@ async def start_bot():
             "الوقت": pd.Timestamp.now().strftime('%H:%M:%S')
         }
         save_order(entry)
-        await message.answer("✅ تم استلام طلبك! سيظهر الآن في لوحة المقهى.")
+        await message.answer("✅ تم استلام طلبك بنجاح! سيظهر الآن في لوحة المقهى.")
 
+    # تشغيل البوت بدون معالجة إشارات النظام لتجنب الانهيار في Streamlit
     await dp.start_polling(bot, handle_signals=False)
 
 # --- 5. التشغيل ---
@@ -103,3 +108,4 @@ if st.button("🛰️ تفعيل الرادار"):
         asyncio.run(start_bot())
     except Exception as e:
         st.error(f"حدث خطأ في الاتصال: {e}")
+        

@@ -8,7 +8,7 @@ from geopy.distance import geodesic
 
 # --- 1. الإعدادات ---
 API_TOKEN = '8734967078:AAGLMX5luI5i6DBhr6Dks6VQJ0pHXdVpr1I'
-CAFE_LOCATION = (24.7136, 46.6753) # إحداثيات الرياض
+CAFE_LOCATION = (24.7136, 46.6753) 
 DB_FILE = "orders.csv"
 
 st.set_page_config(page_title="TIMENN Dashboard", layout="wide", page_icon="🏎️")
@@ -36,11 +36,11 @@ with col1:
     if st.button("🔄 تحديث الجدول"):
         st.rerun()
     
-    df = load_orders()
-    if not df.empty:
-        st.table(df.iloc[::-1])
+    df_display = load_orders()
+    if not df_display.empty:
+        st.table(df_display.iloc[::-1])
     else:
-        st.info("بانتظار إشارات العملاء... (اضغط تحديث بعد إرسال الموقع)")
+        st.info("بانتظار إشارات العملاء...")
 
 with col2:
     st.subheader("التحكم")
@@ -48,14 +48,13 @@ with col2:
         if os.path.exists(DB_FILE): os.remove(DB_FILE)
         st.rerun()
 
-# --- 4. محرك البوت ---
+# --- 4. محرك البوت المحسن ---
 async def start_bot():
     bot = Bot(token=API_TOKEN)
     dp = Dispatcher()
 
     @dp.message(Command("start"))
     async def cmd_start(message: types.Message):
-        # قائمة الأصناف
         kb = [
             [types.KeyboardButton(text="☕️ قهوة لاتيه")],
             [types.KeyboardButton(text="🍃 شاي بالنعناع")],
@@ -65,24 +64,22 @@ async def start_bot():
         markup = types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
         await message.answer("أهلاً بك في تايمن! اختر صنفك المفضل:", reply_markup=markup)
 
-    # مستشعر مرن: يستجيب إذا احتوت الرسالة على أي من هذه الكلمات
-    @dp.message(lambda msg: any(word in msg.text for word in ["قهوة", "شاي", "كروسان", "كيك", "مادلين", "لاتيه"]))
-    async def ask_location(message: types.Message):
-        # حفظ الطلب في الجلسة
+    # معالج شامل لأي رسالة نصية ليست أمراً (start)
+    @dp.message(F.text & ~F.text.startswith('/'))
+    async def process_any_text(message: types.Message):
+        # حفظ الطلب في ذاكرة الجلسة
         st.session_state['current_order'] = message.text
         
-        # إنشاء زر الموقع
+        # إنشاء زر طلب الموقع
         loc_kb = [[types.KeyboardButton(text="📍 إرسال الموقع لتجهيز الطلب", request_location=True)]]
         await message.answer(
-            f"اختيار رائع: {message.text}\n\nفضلاً اضغط على الزر أدناه لمشاركة موقعك لنبدأ التحضير فوراً:", 
+            f"تم تسجيل طلبك: {message.text}\n\nفضلاً اضغط على الزر أدناه لمشاركة موقعك لنبدأ التحضير فوراً:", 
             reply_markup=types.ReplyKeyboardMarkup(keyboard=loc_kb, resize_keyboard=True, one_time_keyboard=True)
         )
 
     @dp.message(F.location)
     async def handle_location(message: types.Message):
         order_item = st.session_state.get('current_order', "طلب متنوع")
-        
-        # حساب المسافة
         u_coords = (message.location.latitude, message.location.longitude)
         dist = geodesic(u_coords, CAFE_LOCATION).km
         
@@ -99,5 +96,8 @@ async def start_bot():
 
 # --- 5. التشغيل ---
 if st.button("🛰️ تفعيل الرادار"):
-    st.warning("الرادار يعمل الآن.. استقبل الطلب في تيليقرام ثم اضغط 'تحديث'")
-    asyncio.run(start_bot())
+    st.warning("الرادار يعمل الآن.. استقبل الطلبات في تيليقرام.")
+    try:
+        asyncio.run(start_bot())
+    except Exception as e:
+        st.error(f"حدث خطأ في الاتصال: {e}")

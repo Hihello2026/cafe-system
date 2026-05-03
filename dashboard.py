@@ -6,18 +6,17 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from geopy.distance import geodesic
 
-# --- 1. إعدادات الفروع ---
+# --- 1. الإعدادات ---
 API_TOKEN = '8734967078:AAGLMX5luI5i6DBhr6Dks6VQJ0pHXdVpr1I'
-DB_FILE = "orders.csv"
-
-# إحداثيات الفروع في الرياض
+# مواقع الفروع التي حددتها (شارع التلفزيون وشارع الخزان)
 BRANCHES = {
     "شارع التلفزيون": (24.6475, 46.7042),
     "شارع الخزان": (24.6412, 46.7035)
 }
+DB_FILE = "orders.csv"
 
-st.set_page_config(page_title="TIMENN Multi-Branch", layout="wide", page_icon="🏎️")
-st.title("🏎️ لوحة تايمن - إدارة الفروع الحية")
+st.set_page_config(page_title="TIMENN Dashboard", layout="wide", page_icon="🏎️")
+st.title("🏎️ لوحة تايمن - إدارة الفروع")
 
 # --- 2. إدارة البيانات ---
 def save_order(entry):
@@ -37,25 +36,25 @@ def load_orders():
 col1, col2 = st.columns([3, 1])
 
 with col1:
-    st.subheader("سجل العمليات الحية (كافة الفروع)")
-    if st.button("🔄 تحديث"):
+    st.subheader("سجل العمليات الحية")
+    if st.button("🔄 تحديث الجدول"):
         st.rerun()
     
     df_display = load_orders()
     if not df_display.empty:
-        # ترتيب حسب الوقت الأحدث
         st.table(df_display.iloc[::-1])
     else:
-        st.info("بانتظار وصول طلبات من الفروع...")
+        st.info("بانتظار إشارات العملاء...")
 
 with col2:
-    st.subheader("إحصائيات سريعة")
-    if not df_display.empty:
-        st.metric("إجمالي الطلبات", len(df_display))
-        st.write("آخر تحديث:", pd.Timestamp.now().strftime('%H:%M'))
+    st.subheader("التحكم")
+    if st.button("🗑️ تصفير السجل"):
+        if os.path.exists(DB_FILE): os.remove(DB_FILE)
+        st.rerun()
 
-# --- 4. محرك البوت الذكي ---
-user_selections = {}
+# --- 4. محرك البوت (الذاكرة الداخلية المستقلة) ---
+# هذه الذاكرة تضمن رد البوت فوراً دون الاعتماد على Streamlit Session
+user_temp_orders = {}
 
 async def start_bot():
     bot = Bot(token=API_TOKEN)
@@ -64,46 +63,57 @@ async def start_bot():
     @dp.message(Command("start"))
     async def cmd_start(message: types.Message):
         kb = [
-            [types.KeyboardButton(text="☕️ قهوة لاتيه"), types.KeyboardButton(text="🧁 كيك مادلين")],
-            [types.KeyboardButton(text="🍃 شاي بالنعناع"), types.KeyboardButton(text="🥐 كروسان")]
+            [types.KeyboardButton(text="☕️ قهوة لاتيه")],
+            [types.KeyboardButton(text="🍃 شاي بالنعناع")],
+            [types.KeyboardButton(text="🥐 كروسان")],
+            [types.KeyboardButton(text="🧁 كيك مادلين")]
         ]
         markup = types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
-        await message.answer("مرحباً بك في تايمن! يرجى اختيار طلبك:", reply_markup=markup)
+        await message.answer("أهلاً بك في تايمن! اختر صنفك المفضل:", reply_markup=markup)
 
+    # معالج النصوص الشامل: يضمن الرد على أي صنف يتم اختياره فوراً
     @dp.message(F.text & ~F.text.startswith('/'))
-    async def process_order(message: types.Message):
-        user_selections[message.from_user.id] = message.text
-        loc_kb = [[types.KeyboardButton(text="📍 إرسال الموقع لتحديد أقرب فرع", request_location=True)]]
+    async def process_selection(message: types.Message):
+        # حفظ اختيار المستخدم في ذاكرة البوت البرمجية
+        user_temp_orders[message.from_user.id] = message.text
+        
+        loc_kb = [[types.KeyboardButton(text="📍 إرسال الموقع لتجهيز الطلب", request_location=True)]]
         await message.answer(
-            f"تم اختيار {message.text}. فضلاً أرسل موقعك لنقوم بتوجيه طلبك للفرع الأقرب (التلفزيون أو الخزان):", 
-            reply_markup=types.ReplyKeyboardMarkup(keyboard=loc_kb, resize_keyboard=True)
+            f"تم تسجيل اختيارك: {message.text}\n\nفضلاً اضغط على الزر أدناه لمشاركة موقعك لنبدأ التحضير فوراً:", 
+            reply_markup=types.ReplyKeyboardMarkup(keyboard=loc_kb, resize_keyboard=True, one_time_keyboard=True)
         )
 
     @dp.message(F.location)
     async def handle_location(message: types.Message):
-        order_item = user_selections.get(message.from_user.id, "طلب متنوع")
+        # استرجاع الصنف الخاص بالمستخدم
+        order_item = user_temp_orders.get(message.from_user.id, "طلب متنوع")
         u_coords = (message.location.latitude, message.location.longitude)
         
-        # حساب المسافة لأقرب فرع تلقائياً
-        distances = {name: geodesic(u_coords, coords).km for name, coords in BRANCHES.items()}
-        nearest_branch = min(distances, key=distances.get)
-        min_dist = distances[nearest_branch]
+        # حساب أقرب فرع تلقائياً لتعزيز كفاءة الـ Pit Stop
+        dist_tel = geodesic(u_coords, BRANCHES["شارع التلفزيون"]).km
+        dist_khz = geodesic(u_coords, BRANCHES["شارع الخزان"]).km
+        
+        if dist_tel < dist_khz:
+            branch, dist = "شارع التلفزيون", dist_tel
+        else:
+            branch, dist = "شارع الخزان", dist_khz
         
         entry = {
             "العميل": message.from_user.first_name,
             "الطلب": order_item,
-            "الفرع": nearest_branch,
-            "المسافة": f"{min_dist:.2f} كم",
+            "الفرع": branch,
+            "المسافة": f"{dist:.2f} كم",
             "الوقت": pd.Timestamp.now().strftime('%H:%M:%S')
         }
         save_order(entry)
-        await message.answer(f"✅ تم! طلبك موجه لفرع **{nearest_branch}**. يبعد عنك {min_dist:.2f} كم.")
+        await message.answer(f"✅ تم! طلبك موجه لفرع **{branch}**. سيظهر الآن في لوحة المقهى.")
 
     await dp.start_polling(bot, handle_signals=False)
 
-if st.button("🛰️ تفعيل نظام الفروع"):
-    st.warning("نظام الرادار الموحد يعمل الآن...")
+# --- 5. التشغيل ---
+if st.button("🛰️ تفعيل رادار تايمن"):
+    st.warning("الرادار يعمل الآن.. استقبل الطلبات في تيليقرام.")
     try:
         asyncio.run(start_bot())
     except Exception as e:
-        st.error(f"خطأ: {e}")
+        st.error(f"تنبيه: {e}")

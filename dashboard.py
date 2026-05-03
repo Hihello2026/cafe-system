@@ -6,9 +6,9 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from geopy.distance import geodesic
 
-# --- 1. الإعدادات ---
+# --- 1. إعدادات الفروع لـ TIMENN ---
 API_TOKEN = '8734967078:AAGLMX5luI5i6DBhr6Dks6VQJ0pHXdVpr1I'
-# مواقع الفروع التي حددتها (شارع التلفزيون وشارع الخزان)
+# إحداثيات الفروع التي حددتها
 BRANCHES = {
     "شارع التلفزيون": (24.6475, 46.7042),
     "شارع الخزان": (24.6412, 46.7035)
@@ -18,7 +18,7 @@ DB_FILE = "orders.csv"
 st.set_page_config(page_title="TIMENN Dashboard", layout="wide", page_icon="🏎️")
 st.title("🏎️ لوحة تايمن - إدارة الفروع")
 
-# --- 2. إدارة البيانات ---
+# --- 2. إدارة البيانات (CSV) ---
 def save_order(entry):
     df = pd.DataFrame([entry])
     if not os.path.isfile(DB_FILE):
@@ -44,7 +44,7 @@ with col1:
     if not df_display.empty:
         st.table(df_display.iloc[::-1])
     else:
-        st.info("بانتظار إشارات العملاء...")
+        st.info("بانتظار إشارات العملاء... (اضغط تحديث بعد استلام تأكيد البوت)")
 
 with col2:
     st.subheader("التحكم")
@@ -53,7 +53,7 @@ with col2:
         st.rerun()
 
 # --- 4. محرك البوت (الذاكرة الداخلية المستقلة) ---
-# هذه الذاكرة تضمن رد البوت فوراً دون الاعتماد على Streamlit Session
+# هذه الذاكرة تضمن رد البوت فوراً لكل مستخدم بناءً على معرفه (ID)
 user_temp_orders = {}
 
 async def start_bot():
@@ -71,10 +71,10 @@ async def start_bot():
         markup = types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
         await message.answer("أهلاً بك في تايمن! اختر صنفك المفضل:", reply_markup=markup)
 
-    # معالج النصوص الشامل: يضمن الرد على أي صنف يتم اختياره فوراً
+    # معالج النصوص الشامل: يضمن الرد على أي صنف فوراً
     @dp.message(F.text & ~F.text.startswith('/'))
     async def process_selection(message: types.Message):
-        # حفظ اختيار المستخدم في ذاكرة البوت البرمجية
+        # تخزين الطلب مؤقتاً داخل البوت وليس في Streamlit
         user_temp_orders[message.from_user.id] = message.text
         
         loc_kb = [[types.KeyboardButton(text="📍 إرسال الموقع لتجهيز الطلب", request_location=True)]]
@@ -85,11 +85,11 @@ async def start_bot():
 
     @dp.message(F.location)
     async def handle_location(message: types.Message):
-        # استرجاع الصنف الخاص بالمستخدم
+        # استرجاع الصنف الخاص بالمستخدم من ذاكرة البوت
         order_item = user_temp_orders.get(message.from_user.id, "طلب متنوع")
         u_coords = (message.location.latitude, message.location.longitude)
         
-        # حساب أقرب فرع تلقائياً لتعزيز كفاءة الـ Pit Stop
+        # حساب المسافات وتوجيه الطلب للفرع الأقرب (التلفزيون أو الخزان)
         dist_tel = geodesic(u_coords, BRANCHES["شارع التلفزيون"]).km
         dist_khz = geodesic(u_coords, BRANCHES["شارع الخزان"]).km
         
@@ -108,6 +108,7 @@ async def start_bot():
         save_order(entry)
         await message.answer(f"✅ تم! طلبك موجه لفرع **{branch}**. سيظهر الآن في لوحة المقهى.")
 
+    # تعطيل معالجة الإشارات لمنع الـ RuntimeError في Streamlit Cloud
     await dp.start_polling(bot, handle_signals=False)
 
 # --- 5. التشغيل ---

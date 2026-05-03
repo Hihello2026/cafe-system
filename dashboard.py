@@ -6,7 +6,7 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from geopy.distance import geodesic
 
-# --- 1. إعدادات الفروع لـ TIMENN ---
+# --- 1. الإعدادات ---
 API_TOKEN = '8734967078:AAGLMX5luI5i6DBhr6Dks6VQJ0pHXdVpr1I'
 # إحداثيات الفروع التي حددتها
 BRANCHES = {
@@ -16,9 +16,9 @@ BRANCHES = {
 DB_FILE = "orders.csv"
 
 st.set_page_config(page_title="TIMENN Dashboard", layout="wide", page_icon="🏎️")
-st.title("🏎️ لوحة تايمن - إدارة الفروع")
+st.title("🏎️ لوحة تايمن - المراقبة الحية")
 
-# --- 2. إدارة البيانات (CSV) ---
+# --- 2. إدارة البيانات ---
 def save_order(entry):
     df = pd.DataFrame([entry])
     if not os.path.isfile(DB_FILE):
@@ -52,9 +52,9 @@ with col2:
         if os.path.exists(DB_FILE): os.remove(DB_FILE)
         st.rerun()
 
-# --- 4. محرك البوت (الذاكرة الداخلية المستقلة) ---
-# هذه الذاكرة تضمن رد البوت فوراً لكل مستخدم بناءً على معرفه (ID)
-user_temp_orders = {}
+# --- 4. محرك البوت (نسخة الاستجابة السريعة) ---
+# ذاكرة مؤقتة لربط المستخدم بالطلب المختار
+user_cache = {}
 
 async def start_bot():
     bot = Bot(token=API_TOKEN)
@@ -62,6 +62,7 @@ async def start_bot():
 
     @dp.message(Command("start"))
     async def cmd_start(message: types.Message):
+        # قائمة الأصناف كما هي في TIMENN
         kb = [
             [types.KeyboardButton(text="☕️ قهوة لاتيه")],
             [types.KeyboardButton(text="🍃 شاي بالنعناع")],
@@ -71,28 +72,31 @@ async def start_bot():
         markup = types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
         await message.answer("أهلاً بك في تايمن! اختر صنفك المفضل:", reply_markup=markup)
 
-    # معالج النصوص الشامل: يضمن الرد على أي صنف فوراً
+    # معالج "صيد" أي نص مرسل لضمان الرد الفوري
     @dp.message(F.text & ~F.text.startswith('/'))
-    async def process_selection(message: types.Message):
-        # تخزين الطلب مؤقتاً داخل البوت وليس في Streamlit
-        user_temp_orders[message.from_user.id] = message.text
+    async def handle_any_text(message: types.Message):
+        # حفظ الاختيار فوراً
+        user_cache[message.from_user.id] = message.text
         
+        # إنشاء زر الموقع
         loc_kb = [[types.KeyboardButton(text="📍 إرسال الموقع لتجهيز الطلب", request_location=True)]]
+        markup = types.ReplyKeyboardMarkup(keyboard=loc_kb, resize_keyboard=True, one_time_keyboard=True)
+        
         await message.answer(
-            f"تم تسجيل اختيارك: {message.text}\n\nفضلاً اضغط على الزر أدناه لمشاركة موقعك لنبدأ التحضير فوراً:", 
-            reply_markup=types.ReplyKeyboardMarkup(keyboard=loc_kb, resize_keyboard=True, one_time_keyboard=True)
+            f"اختيار رائع: {message.text}\n\nفضلاً شاركنا موقعك الآن لنبدأ التحضير فوراً:", 
+            reply_markup=markup
         )
 
     @dp.message(F.location)
     async def handle_location(message: types.Message):
-        # استرجاع الصنف الخاص بالمستخدم من ذاكرة البوت
-        order_item = user_temp_orders.get(message.from_user.id, "طلب متنوع")
+        order_item = user_cache.get(message.from_user.id, "طلب متنوع")
         u_coords = (message.location.latitude, message.location.longitude)
         
-        # حساب المسافات وتوجيه الطلب للفرع الأقرب (التلفزيون أو الخزان)
+        # حساب المسافات للفروع المختارة
         dist_tel = geodesic(u_coords, BRANCHES["شارع التلفزيون"]).km
         dist_khz = geodesic(u_coords, BRANCHES["شارع الخزان"]).km
         
+        # تحديد الأقرب
         if dist_tel < dist_khz:
             branch, dist = "شارع التلفزيون", dist_tel
         else:
@@ -106,15 +110,16 @@ async def start_bot():
             "الوقت": pd.Timestamp.now().strftime('%H:%M:%S')
         }
         save_order(entry)
-        await message.answer(f"✅ تم! طلبك موجه لفرع **{branch}**. سيظهر الآن في لوحة المقهى.")
+        await message.answer(f"✅ تم استلام طلبك لفرع **{branch}**! ستجده جاهزاً عند وصولك.")
 
-    # تعطيل معالجة الإشارات لمنع الـ RuntimeError في Streamlit Cloud
+    # تشغيل البوت بدون تداخل مع إشارات النظام
     await dp.start_polling(bot, handle_signals=False)
 
 # --- 5. التشغيل ---
-if st.button("🛰️ تفعيل رادار تايمن"):
-    st.warning("الرادار يعمل الآن.. استقبل الطلبات في تيليقرام.")
+if st.button("🛰️ تفعيل الرادار"):
+    st.warning("الرادار يعمل الآن.. جرب إرسال طلب من تيليقرام.")
     try:
+        # تشغيل الحدث بشكل مباشر لضمان عدم التعليق
         asyncio.run(start_bot())
     except Exception as e:
-        st.error(f"تنبيه: {e}")
+        st.error(f"حدث خطأ: {e}")

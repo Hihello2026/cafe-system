@@ -38,9 +38,9 @@ with col1:
     
     df_display = load_orders()
     if not df_display.empty:
-        st.table(df_display.iloc[::-1]) # عرض الأحدث أولاً
+        st.table(df_display.iloc[::-1])
     else:
-        st.info("بانتظار إشارات العملاء...")
+        st.info("بانتظار إشارات العملاء... (اضغط تحديث بعد استلام تأكيد البوت)")
 
 with col2:
     st.subheader("التحكم")
@@ -49,8 +49,8 @@ with col2:
         st.rerun()
 
 # --- 4. محرك البوت المحسن ---
-# قاموس لتخزين الطلبات مؤقتاً لربط الصنف بالموقع
-user_temp_data = {}
+# قاموس داخلي لربط المستخدم بطلبه (أكثر استقراراً من session_state في هذه الحالة)
+user_data_store = {}
 
 async def start_bot():
     bot = Bot(token=API_TOKEN)
@@ -58,7 +58,6 @@ async def start_bot():
 
     @dp.message(Command("start"))
     async def cmd_start(message: types.Message):
-        # قائمة الأصناف كما هي في TIMENN
         kb = [
             [types.KeyboardButton(text="☕️ قهوة لاتيه")],
             [types.KeyboardButton(text="🍃 شاي بالنعناع")],
@@ -68,23 +67,22 @@ async def start_bot():
         markup = types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
         await message.answer("أهلاً بك في تايمن! اختر صنفك المفضل:", reply_markup=markup)
 
-    # معالج "صيد" النصوص: يستجيب لأي نص ليس أمراً
+    # معالج "صيد" أي نص مرسل (catch-all) لضمان عدم الصمت
     @dp.message(F.text & ~F.text.startswith('/'))
-    async def process_selection(message: types.Message):
-        # تخزين اختيار المستخدم بناءً على معرفه الخاص
-        user_temp_data[message.from_user.id] = message.text
+    async def handle_selection(message: types.Message):
+        # حفظ الاختيار فوراً في الذاكرة الداخلية
+        user_data_store[message.from_user.id] = message.text
         
-        # إرسال طلب الموقع فوراً
         loc_kb = [[types.KeyboardButton(text="📍 إرسال الموقع لتجهيز الطلب", request_location=True)]]
         await message.answer(
-            f"اختيار رائع: {message.text}\n\nفضلاً شاركنا موقعك الآن لنبدأ التحضير فوراً:", 
+            f"تم اختيار: {message.text}\n\nفضلاً شاركنا موقعك الآن لنبدأ التحضير فوراً:", 
             reply_markup=types.ReplyKeyboardMarkup(keyboard=loc_kb, resize_keyboard=True, one_time_keyboard=True)
         )
 
     @dp.message(F.location)
     async def handle_location(message: types.Message):
-        # استرجاع الصنف الذي اختاره هذا المستخدم تحديداً
-        order_item = user_temp_data.get(message.from_user.id, "طلب متنوع")
+        # استرجاع الصنف الخاص بالمستخدم
+        order_item = user_data_store.get(message.from_user.id, "طلب متنوع")
         u_coords = (message.location.latitude, message.location.longitude)
         dist = geodesic(u_coords, CAFE_LOCATION).km
         
@@ -97,6 +95,7 @@ async def start_bot():
         save_order(entry)
         await message.answer("✅ تم استلام طلبك! ستجده جاهزاً عند وصولك.")
 
+    # تشغيل بدون معالجة إشارات النظام لمنع التعارض مع Streamlit
     await dp.start_polling(bot, handle_signals=False)
 
 # --- 5. التشغيل ---
@@ -105,4 +104,4 @@ if st.button("🛰️ تفعيل الرادار"):
     try:
         asyncio.run(start_bot())
     except Exception as e:
-        st.error(f"حدث خطأ: {e}")
+        st.error(f"حدث خطأ في الاتصال: {e}")

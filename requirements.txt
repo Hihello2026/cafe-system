@@ -1,0 +1,36 @@
+streamlit
+aiogram==2.25.1
+geopy
+pandas
+4.  اضغط على **Commit changes** في الأسفل لحفظ الملف.
+
+---
+
+### الخطوة 3: إنشاء كود "لوحة التحكم" المبدئي (Dashboard)
+سنضع كوداً بسيطاً جداً ليعرض المنتجات الأربعة التي اخترتها، لنتأكد أن Streamlit يعمل.
+
+1.  اضغط مرة أخرى على **Add file** ثم **Create new file**.
+2.  سمِّ الملف: `dashboard.py`.
+3.  انسخ هذا الكود (البسيط جداً للعرض) وألصقه:
+
+```python
+import streamlit as st
+import pandas as pd
+
+st.set_page_config(page_title="TIMENN Cafe Dashboard", layout="wide")
+
+st.title("🏎️ لوحة تحكم الدرايف ثرو - تايمن")
+
+# قائمة المنتجات التجريبية
+data = {
+    "المنتج": ["قهوة لاتيه", "شاي بالنعناع", "كروسان", "كيك مادلين"],
+    "السعر": [18, 10, 15, 12],
+    "الحالة": ["جاهز", "قيد التحضير", "في الطريق", "قادم"]
+}
+
+df = pd.DataFrame(data)
+
+st.subheader("الطلبات الحالية")
+st.table(df)
+
+st.info("هذه لوحة تجريبية مرتبطة بـ GitHub")
